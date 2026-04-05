@@ -204,3 +204,4 @@ def prepare_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray | None]
 
     logger.info(f"Features ready — X: {X.shape}, y: {'present' if y is not None else 'absent'}")
     return X, y
+
