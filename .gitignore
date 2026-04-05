@@ -1,0 +1,22 @@
+# ─── Datasets (large binary files) ───────────────────────────────────────────
+Data/*.csv
+
+# ─── Trained model artifacts (large binary files) ─────────────────────────────
+models/*.pkl
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.env
+
+# ─── Jupyter ──────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
