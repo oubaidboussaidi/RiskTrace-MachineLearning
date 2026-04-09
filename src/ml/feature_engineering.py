@@ -240,3 +240,4 @@ def logs_to_feature_matrix(
         matrix.append([fmt[col] for col in FEATURE_COLUMNS])
     return np.array(matrix) if matrix else np.array([])
 
+
