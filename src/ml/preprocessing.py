@@ -93,10 +93,14 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df[num_cols] = df[num_cols].fillna(df[num_cols].median())
 
     # Rates and counts cannot be negative — clip as safety net
-    rate_cols = ["error_rate", "post_ratio", "request_rate"]
+    rate_cols = ["error_rate", "post_ratio"]
     for col in rate_cols:
         if col in df.columns:
             df[col] = df[col].clip(lower=0.0, upper=1.0)
+
+    # request_rate should only be clipped to 0, not 1
+    if "request_rate" in df.columns:
+        df["request_rate"] = df["request_rate"].clip(lower=0.0)
 
     count_cols = [
         "request_count", "auth_failure_count", "unique_endpoints",
