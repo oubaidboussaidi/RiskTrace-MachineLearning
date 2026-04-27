@@ -1,0 +1,1 @@
+["request_count", "error_rate", "auth_failure_count", "avg_response_time_ms", "p95_response_time_ms", "unique_endpoints", "unique_ips", "anomalous_path_count", "post_ratio", "js_error_count", "request_rate", "session_duration_s"]
