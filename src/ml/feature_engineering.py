@@ -97,18 +97,8 @@ def aggregate_session_logs(logs: list[dict[str, Any]]) -> dict[str, Any]:
     Returns:
         Feature dict with FEATURE_COLUMNS as keys.
 
-    TODO:
-        - Parse timestamps and compute session_duration_s as max-min
-        - Count request_count as len(logs)
-        - Compute error_rate = count(status in ERROR_STATUS_CODES) / request_count
-        - Compute request_rate = request_count / session_duration_s
-        - Compute avg and p95 of response_time values
-        - Count unique endpoints, unique IPs, unique user agents
-        - Sum bytes_sent and bytes_received across log entries
-        - Compute get_ratio and post_ratio
-        - Count auth_failure_count (status_code == 401 or 403)
-        - Count anomalous_path_count by matching endpoint against ANOMALOUS_PATH_PATTERNS
-        - Handle edge case: single log entry (duration = 0 → request_rate = 0)
+    Returns:
+        Feature dict with FEATURE_COLUMNS as keys.
     """
     if not logs:
         return {col: 0.0 for col in FEATURE_COLUMNS}
