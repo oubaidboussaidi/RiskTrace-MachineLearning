@@ -1,11 +1,11 @@
 """
 full_audit_and_test.py
-─────────────────────────────────────────────────────────────────────
+
 1. Audits CSV dataset columns vs ML FEATURE_COLUMNS
 2. Trains the Isolation Forest on the dataset
 3. Evaluates accuracy, precision, recall, F1
 4. Runs inference on simulated live tracker logs (exactly like backend sends)
-─────────────────────────────────────────────────────────────────────
+
 Run: python src/ml/full_audit_and_test.py
 """
 
@@ -21,7 +21,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 
-# ─── Setup paths ─────────────────────────────────────────────────────
+#  Setup paths 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(Path(__file__).resolve().parent))
 
@@ -32,12 +32,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 
-# ════════════════════════════════════════════════════════════════════
-# STEP 1: AUDIT — CSV vs ML Schema
-# ════════════════════════════════════════════════════════════════════
-print("\n" + "═"*60)
+# ====================================================================
+# STEP 1: AUDIT  CSV vs ML Schema
+# ====================================================================
+print("\n" + "="*60)
 print("STEP 1: SCHEMA AUDIT")
-print("═"*60)
+print("="*60)
 
 DATA_PATH = BASE_DIR / "Data" / "risk_trace_training_data.csv"
 df_raw = pd.read_csv(DATA_PATH)
@@ -52,14 +52,14 @@ missing_in_csv = ml_cols - csv_cols
 extra_in_csv   = csv_cols - ml_cols - {LABEL_COLUMN}
 
 if missing_in_csv:
-    print(f"\n  ❌ FEATURES MISSING FROM CSV: {missing_in_csv}")
+    print(f"\n  [FAIL] FEATURES MISSING FROM CSV: {missing_in_csv}")
 else:
-    print(f"\n  ✅ All ML features are present in the dataset CSV.")
+    print(f"\n  OK All ML features are present in the dataset CSV.")
 
 if extra_in_csv:
-    print(f"  ℹ️  Extra CSV cols (ignored by ML): {extra_in_csv}")
+    print(f"  [INFO]  Extra CSV cols (ignored by ML): {extra_in_csv}")
 else:
-    print(f"  ✅ No unexpected extra columns.")
+    print(f"  OK No unexpected extra columns.")
 
 print(f"\n  Dataset shape : {df_raw.shape}")
 print(f"  Normal  (0)   : {(df_raw[LABEL_COLUMN]==0).sum():,}")
@@ -68,12 +68,12 @@ ratio = (df_raw[LABEL_COLUMN]==1).sum() / len(df_raw)
 print(f"  Attack ratio  : {ratio:.1%}")
 
 
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
 # STEP 2: TRAIN + EVALUATE
-# ════════════════════════════════════════════════════════════════════
-print("\n" + "═"*60)
+# ====================================================================
+print("\n" + "="*60)
 print("STEP 2: TRAIN & EVALUATE")
-print("═"*60)
+print("="*60)
 
 MODEL_DIR = BASE_DIR / "models"
 MODEL_DIR.mkdir(exist_ok=True)
@@ -95,7 +95,7 @@ test_scaled  = scale_features(test_df,  training=False)
 X_train, y_train = prepare_features(train_scaled)
 X_test,  y_test  = prepare_features(test_scaled)
 
-# Train — contamination set to actual attack ratio in training split
+# Train  contamination set to actual attack ratio in training split
 contamination = float((train_df[LABEL_COLUMN]==1).sum() / len(train_df))
 contamination = round(min(max(contamination, 0.01), 0.49), 3)
 logger.info(f"Contamination set to: {contamination}")
@@ -123,37 +123,37 @@ print(classification_report(y_test, y_pred, target_names=["Normal", "Attack"]))
 joblib.dump(model, MODEL_PATH)
 with open(FEAT_PATH, "w") as f:
     json.dump(FEATURE_COLUMNS, f)
-logger.info(f"✅ Model saved → {MODEL_PATH}")
-logger.info(f"✅ Feature columns saved → {FEAT_PATH}")
+logger.info(f"OK Model saved  {MODEL_PATH}")
+logger.info(f"OK Feature columns saved  {FEAT_PATH}")
 
 
-# ════════════════════════════════════════════════════════════════════
+# ====================================================================
 # STEP 3: SIMULATE LIVE TRACKER LOGS (exactly as Spring Boot sends)
-# ════════════════════════════════════════════════════════════════════
-print("\n" + "═"*60)
+# ====================================================================
+print("\n" + "="*60)
 print("STEP 3: SIMULATED LIVE TRACKER INFERENCE")
-print("═"*60)
+print("="*60)
 
 # Load fresh artifacts
 scaler = joblib.load(SCALER_PATH)
 model2 = joblib.load(MODEL_PATH)
 
 def predict_from_raw_logs(session_name, logs):
-    """Full pipeline: raw Spring Boot logs → features → prediction."""
+    """Full pipeline: raw Spring Boot logs  features  prediction."""
     features = aggregate_session_logs(logs)
     features = format_for_prediction(features)
     row = np.array([[features[col] for col in FEATURE_COLUMNS]])
     row_scaled = scaler.transform(row)
     raw_score = model2.decision_function(row_scaled)[0]
     score = float(1.0 / (1.0 + np.exp(raw_score)))
-    prediction = "🚨 ANOMALY" if score >= 0.5 else "✅ NORMAL"
+    prediction = " ANOMALY" if score >= 0.5 else "OK NORMAL"
     confidence = "HIGH" if score >= 0.75 else ("MEDIUM" if score >= 0.5 else "LOW")
     print(f"\n  [{session_name}]")
     print(f"    Features      : {features}")
     print(f"    Anomaly Score : {score:.4f}")
     print(f"    Prediction    : {prediction}   ({confidence} confidence)")
 
-# --- Scenario A: Normal user browsing (camelCase — exactly what Spring Boot sends)
+# --- Scenario A: Normal user browsing (camelCase  exactly what Spring Boot sends)
 normal_session = [
     {"type": "page_load",      "url": "/dashboard",         "method": "GET",    "statusCode": 200, "responseTime": 210, "ipAddress": "192.168.1.5", "userAgent": "Mozilla/5.0"},
     {"type": "fetch_request",  "url": "/api/v1/risks",      "method": "GET",    "statusCode": 200, "responseTime": 180, "ipAddress": "192.168.1.5", "userAgent": "Mozilla/5.0"},
@@ -201,6 +201,6 @@ predict_from_raw_logs("Brute Force Attack",      brute_force_session)
 predict_from_raw_logs("Recon / Path Scanning",   recon_session)
 predict_from_raw_logs("JS Error Flood",           js_error_session)
 
-print("\n" + "═"*60)
+print("\n" + "="*60)
 print("AUDIT COMPLETE")
-print("═"*60 + "\n")
+print("="*60 + "\n")
