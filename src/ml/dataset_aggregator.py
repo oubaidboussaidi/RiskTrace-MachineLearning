@@ -259,31 +259,92 @@ def main():
     logging.info(f"  Attack sessions (raw): {len(df[df['is_anomaly']==1])}")
     logging.info(f"  Attack ratio    (raw): {len(df[df['is_anomaly']==1])/len(df):.1%}")
 
-    # ── Phase 4: Strategic Dataset Balancing ──────────────────────────────────
-    # WHY: The Isolation Forest is an UNSUPERVISED anomaly detector. It is
-    # mathematically designed to detect rare anomalies embedded in mostly-normal
-    # data. If the training set contains ~42% attacks (as in the raw output),
-    # the model cannot distinguish a clear "normal boundary" — it treats attacks
-    # as part of the baseline, massively degrading accuracy (tested: 65% F1).
-    #
-    # A real-world enterprise environment has ~5-15% anomalous traffic at most.
-    # We undersample to 15% attacks to replicate this reality and ensure the
-    # Isolation Forest operates as designed.
-    #
-    # STRATEGY: Keep ALL normal sessions. Sample attack sessions so they
-    # represent exactly TARGET_ATTACK_RATIO of the final combined dataset.
-    TARGET_ATTACK_RATIO = 0.15   # 15% attacks, 85% normal — matches real SIEM data
+def intelligent_sample_anomalies(df: pd.DataFrame, target_ratio: float = 0.15) -> pd.DataFrame:
+    """
+    Intelligently reduce the number of anomaly sessions to reach a target ratio.
+    Instead of random deletion, we use deduplication and K-Means clustering to 
+    ensure we keep a diverse set of unique attack patterns.
+    """
+    from sklearn.cluster import KMeans
     
+    # 1. Split data
     normal_df = df[df['is_anomaly'] == 0]
     attack_df = df[df['is_anomaly'] == 1]
     
-    # Calculate how many attack sessions to keep: n_attack = (ratio * n_normal) / (1 - ratio)
-    n_normal = len(normal_df)
-    n_attack_target = int((TARGET_ATTACK_RATIO * n_normal) / (1 - TARGET_ATTACK_RATIO))
-    n_attack_target = min(n_attack_target, len(attack_df))  # Can't sample more than we have
+    # Define columns to use for diversity check (our 12 features)
+    feature_cols = [
+        'request_count', 'error_rate', 'auth_failure_count', 
+        'avg_response_time_ms', 'p95_response_time_ms', 'unique_endpoints',
+        'unique_ips', 'anomalous_path_count', 'post_ratio', 
+        'js_error_count', 'request_rate', 'session_duration_s'
+    ]
     
-    attack_sampled = attack_df.sample(n=n_attack_target, random_state=42)
-    df_balanced = pd.concat([normal_df, attack_sampled]).sample(frac=1, random_state=42).reset_index(drop=True)
+    # 2. Hard Deduplication: remove identical signatures (usually massive DDoS or pings)
+    # This prevents 'crowds' of identical anomalies from hiding from the Isolation Forest
+    attack_unique = attack_df.drop_duplicates(subset=feature_cols)
+    logging.info(f"  Deduplication: Reduced {len(attack_df)} raw attacks to {len(attack_unique)} unique patterns.")
+    
+    # 3. Calculate target count
+    n_normal = len(normal_df)
+    n_attack_target = int((target_ratio * n_normal) / (1 - target_ratio))
+    
+    # 4. Intelligent Clustering (if we still have too many unique patterns)
+    if len(attack_unique) > n_attack_target and n_attack_target > 0:
+        logging.info(f"  Clustering: Picking {n_attack_target} representative samples using K-Means...")
+        kmeans = KMeans(n_clusters=n_attack_target, random_state=42, n_init='auto')
+        attack_unique = attack_unique.copy()
+        attack_unique['cluster'] = kmeans.fit_predict(attack_unique[feature_cols])
+        
+        # Keep one representative from each cluster
+        attack_final = attack_unique.groupby('cluster').first().reset_index(drop=True)
+    else:
+        attack_final = attack_unique
+        
+    # Append some random ones if we were somehow under the target (rare, but for safety)
+    if len(attack_final) < n_attack_target:
+        diff = n_attack_target - len(attack_final)
+        remaining = attack_df[~attack_df.index.isin(attack_final.index)]
+        if not remaining.empty:
+            extra = remaining.sample(n=min(len(remaining), diff), random_state=42)
+            attack_final = pd.concat([attack_final, extra])
+
+    # 5. Final combine and shuffle
+    balanced_df = pd.concat([normal_df, attack_final]).sample(frac=1, random_state=42).reset_index(drop=True)
+    return balanced_df
+
+
+def main():
+    if not os.path.exists(DATA_DIR):
+        logging.error(f"Data directory not found: {DATA_DIR}")
+        return
+
+    tracker = SessionTracker()
+    
+    logging.info("--- Phase 1: Ingesting ModSecurity WAF Attacks ---")
+    process_modsecurity_logs(tracker)
+    
+    logging.info("--- Phase 2: Ingesting NASA Normal Traffic Baseline ---")
+    process_nasa_logs(tracker)
+    
+    logging.info("--- Phase 3: Aggregating Sessions ---")
+    tracker.close_all()
+    
+    if not tracker.sessions:
+        logging.error("No sessions were generated. Check dataset paths.")
+        return
+        
+    df = pd.DataFrame(tracker.sessions)
+    
+    logging.info(f"Raw sessions generated: {len(df)}")
+    logging.info(f"  Normal sessions (raw): {len(df[df['is_anomaly']==0])}")
+    logging.info(f"  Attack sessions (raw): {len(df[df['is_anomaly']==1])}")
+
+    # ── Phase 4: Intelligent Dataset Balancing ────────────────────────────────
+    # WHY: Isolation Forest needs anomalies to be RARE and DIVERSE.
+    # We use Intelligent Anomaly Reduction to remove redundancy and keep 
+    # a diverse set of attack signatures at a 15% ratio.
+    logging.info("--- Phase 4: Intelligent Anomaly Reduction ---")
+    df_balanced = intelligent_sample_anomalies(df, target_ratio=0.15)
     
     logging.info(f"After balancing:")
     logging.info(f"  Normal sessions: {len(df_balanced[df_balanced['is_anomaly']==0])}")
