@@ -10,12 +10,8 @@ Endpoints:
   POST /predict         → single session anomaly score
   POST /predict/batch   → batch of sessions anomaly scores
 
-Startup:
-  Artifacts (model, scaler, encoders) are loaded ONCE via a lifespan handler
-  and cached in app.state to avoid repeated disk I/O per request.
-
 Run locally:
-  uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
+  uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ────────────────────────────────────────────────────────────────────────────────
 """
 
@@ -44,75 +40,55 @@ logger = logging.getLogger(__name__)
 
 class SessionFeatures(BaseModel):
     """
-    Input schema for a single session prediction request.
-
-    TODO:
-        - Add all 15 feature fields with proper types, descriptions, and
-          example values once FEATURE_COLUMNS is finalised
-        - Use Field(ge=0) / Field(ge=0.0, le=1.0) for range validation
-        - Example:
-            request_count:        int   = Field(..., ge=0, description="Total HTTP requests in window")
-            error_rate:           float = Field(..., ge=0.0, le=1.0)
-            request_rate:         float = Field(..., ge=0.0)
-            avg_response_time_ms: float = Field(..., ge=0.0)
-            ...
+    Input schema for a single session behavior window.
+    All fields are derived from the aggregated log data.
     """
+    request_count: float = Field(..., ge=0, description="Total HTTP requests in window")
+    error_rate: float = Field(..., ge=0.0, le=1.0, description="Ratio of 4xx/5xx status codes")
+    auth_failure_count: float = Field(..., ge=0, description="Count of 401/403 status codes")
+    avg_response_time_ms: float = Field(..., ge=0.0, description="Average response time in ms")
+    p95_response_time_ms: float = Field(..., ge=0.0, description="95th percentile response time in ms")
+    unique_endpoints: float = Field(..., ge=0, description="Count of unique URLs accessed")
+    unique_ips: float = Field(..., ge=0, description="Count of unique source IPs (usually 1)")
+    anomalous_path_count: float = Field(..., ge=0, description="Count of probes to sensitive paths like /admin, /.env")
+    post_ratio: float = Field(..., ge=0.0, le=1.0, description="Ratio of POST requests")
+    js_error_count: float = Field(..., ge=0, description="Browser-side JavaScript errors tracked")
+    request_rate: float = Field(..., ge=0.0, description="Requests per second")
+    session_duration_s: float = Field(..., ge=0.0, description="Time between first and last request in window")
 
-    # TODO: Replace with actual feature fields
-    features: dict[str, float] = Field(
-        ...,
-        description="Temporary catch-all dict. Replace with typed fields.",
-        example={
-            "request_count": 150,
-            "error_rate": 0.12,
-            "auth_failure_count": 5,
-            "avg_response_time_ms": 340.0,
-            "p95_response_time_ms": 820.0,
-            "unique_endpoints": 8,
-            "unique_ips": 1,
-            "anomalous_path_count": 1,
-            "post_ratio": 0.2,
-            "js_error_count": 0,
-            "request_rate": 2.5,
-            "session_duration_s": 60.0,
-        },
-    )
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_count": 150.0,
+                "error_rate": 0.05,
+                "auth_failure_count": 2.0,
+                "avg_response_time_ms": 120.5,
+                "p95_response_time_ms": 450.0,
+                "unique_endpoints": 12.0,
+                "unique_ips": 1.0,
+                "anomalous_path_count": 0.0,
+                "post_ratio": 0.1,
+                "js_error_count": 0.0,
+                "request_rate": 2.5,
+                "session_duration_s": 60.0
+            }
+        }
 
 
 class BatchSessionFeatures(BaseModel):
-    """
-    Input schema for a batch prediction request.
-
-    TODO:
-        - Replace sessions list type with list[SessionFeatures] once fields
-          are properly typed in SessionFeatures
-        - Add a max length validator to protect the service
-    """
-
-    sessions: list[dict[str, float]] = Field(
-        ...,
-        description="List of session feature dicts.",
-        min_length=1,
-    )
+    """Input schema for a batch of session behavior windows."""
+    sessions: list[SessionFeatures] = Field(..., min_length=1, description="List of session feature objects.")
 
 
 class PredictionResponse(BaseModel):
-    """
-    Output schema for a single prediction result.
-
-    TODO:
-        - Add sessionId field if tracking context is passed in the request
-        - Add modelVersion field once versioning is implemented
-    """
-
-    anomalyScore: float = Field(..., description="Normalized anomaly score [0, 1].")
+    """Output schema for a single prediction result."""
+    anomalyScore: float = Field(..., description="Normalized anomaly score [0.0 = safe, 1.0 = highly anomalous].")
     prediction: str = Field(..., description="'NORMAL' or 'ANOMALY'.")
-    confidence: str = Field(..., description="'LOW', 'MEDIUM', or 'HIGH'.")
+    confidence: str = Field(..., description="Model confidence level ('LOW', 'MEDIUM', or 'HIGH').")
 
 
 class BatchPredictionResponse(BaseModel):
-    """Output schema for a batch prediction result."""
-
+    """Output schema for a batch prediction results."""
     results: list[PredictionResponse]
     total: int
 
@@ -122,15 +98,7 @@ class BatchPredictionResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Load ML artifacts once at startup; release on shutdown.
-
-    TODO:
-        - Call predict.load_artifacts() and store in app.state.artifacts
-        - Log model loading time
-        - If artifacts are missing, log a warning but don't crash the process
-          (allows /health to respond with a degraded status)
-    """
+    """Load ML artifacts once at startup."""
     logger.info("🚀 RiskTraceML service starting — loading artifacts …")
 
     try:
@@ -148,11 +116,12 @@ async def lifespan(app: FastAPI):
 
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
 
+
 app = FastAPI(
     title="RiskTraceML",
     description=(
         "Anomaly detection microservice for the RiskTrace platform. "
-        "Uses an Isolation Forest model trained on UNSW-NB15 network traffic data."
+        "Uses an Isolation Forest model trained on application behavioral data."
     ),
     version="0.1.0",
     lifespan=lifespan,
@@ -171,15 +140,6 @@ app = FastAPI(
 async def health_check() -> dict[str, Any]:
     """
     Returns the current health status of the service.
-
-    Used by:
-      - Spring Boot Actuator / gateway health aggregation
-      - Kubernetes liveness / readiness probes
-
-    TODO:
-        - Return {"status": "UP", "model": "LOADED"} when model is ready
-        - Return {"status": "DEGRADED", "model": "NOT_LOADED"} if model failed
-        - Add "version" and "uptime_seconds" to the response
     """
     return {
         "status": "UP",
@@ -197,17 +157,7 @@ async def health_check() -> dict[str, Any]:
 )
 async def predict(request: SessionFeatures) -> PredictionResponse:
     """
-    Accept a single session feature vector and return an anomaly prediction.
-
-    Called by:
-      Spring Boot log-service after aggregating a session window.
-
-    TODO:
-        - Check app.state.model_ready; raise 503 if model is not loaded
-        - Call feature_engineering.format_for_prediction(request.features)
-        - Call predict.predict_session(formatted_features, app.state.artifacts)
-        - Return the result as a PredictionResponse
-        - Add request/response logging with a correlation ID
+    Accept a single session behavior window and return an anomaly prediction.
     """
     if not app.state.model_ready:
         raise HTTPException(
@@ -216,7 +166,9 @@ async def predict(request: SessionFeatures) -> PredictionResponse:
         )
 
     from ml.feature_engineering import format_for_prediction
-    formatted = format_for_prediction(request.features)
+    features_dict = request.model_dump()
+    formatted = format_for_prediction(features_dict)
+    
     result = predict_session(formatted, app.state.artifacts)
     return PredictionResponse(**result)
 
@@ -229,18 +181,7 @@ async def predict(request: SessionFeatures) -> PredictionResponse:
 )
 async def predict_batch_endpoint(request: BatchSessionFeatures) -> BatchPredictionResponse:
     """
-    Accept multiple session feature vectors and return a prediction for each.
-
-    Useful for:
-      - Replaying historical log windows through the model
-      - Bulk analysis tasks triggered by the admin dashboard
-
-    TODO:
-        - Check app.state.model_ready; raise 503 if model is not loaded
-        - Format each session: [format_for_prediction(s) for s in request.sessions]
-        - Call predict.predict_batch(formatted_sessions, app.state.artifacts)
-        - Wrap results in BatchPredictionResponse
-        - Add pagination support for very large batches (future)
+    Accept multiple session behavior windows and return a prediction for each.
     """
     if not app.state.model_ready:
         raise HTTPException(
@@ -249,7 +190,8 @@ async def predict_batch_endpoint(request: BatchSessionFeatures) -> BatchPredicti
         )
 
     from ml.feature_engineering import format_for_prediction
-    formatted_sessions = [format_for_prediction(s) for s in request.sessions]
+    formatted_sessions = [format_for_prediction(s.model_dump()) for s in request.sessions]
+    
     results = predict_batch(formatted_sessions, app.state.artifacts)
     response_items = [PredictionResponse(**r) for r in results]
     return BatchPredictionResponse(results=response_items, total=len(results))
