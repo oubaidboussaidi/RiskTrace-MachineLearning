@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from ml.predict import load_artifacts, predict_session, predict_batch
+import py_eureka_client.eureka_client as eureka_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,8 +110,25 @@ async def lifespan(app: FastAPI):
         app.state.artifacts = None
         app.state.model_ready = False
 
+    try:
+        await eureka_client.init_async(
+            eureka_server="http://localhost:8761/eureka",
+            app_name="ML-SERVICE",
+            instance_port=8000,
+            instance_ip="127.0.0.1"
+        )
+        logger.info("✅ Registered with Eureka!")
+    except Exception as e:
+        logger.error(f"❌ Failed to register with Eureka: {e}")
+
     logger.info("✅ RiskTraceML service ready.")
     yield
+    
+    try:
+        await eureka_client.stop_async()
+        logger.info("🛑 Unregistered from Eureka!")
+    except Exception as e:
+        pass
     logger.info("🛑 RiskTraceML service shutting down.")
 
 
