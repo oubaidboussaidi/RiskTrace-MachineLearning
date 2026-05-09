@@ -126,9 +126,11 @@ def normalize_score(raw_scores) -> list[float]:
     normalized = np.clip(normalized, 0.0, 1.0)
     
     # 2. S-Curve (Sigmoid) to stretch the extremes
-    # Centered at 0.5, k=10 controls the steepness of the curve
-    k = 10.0
-    s_curve = 1.0 / (1.0 + np.exp(-k * (normalized - 0.5)))
+    # We shift the center to 0.65 to be more forgiving of slightly unusual normal traffic
+    # (like regular logins that might have a higher response time).
+    # k=12.0 ensures steep separation between normal and true anomalies.
+    k = 12.0
+    s_curve = 1.0 / (1.0 + np.exp(-k * (normalized - 0.65)))
     
     # Debug print to console
     for i, s in enumerate(scores):
