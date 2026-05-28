@@ -110,12 +110,13 @@ async def lifespan(app: FastAPI):
         app.state.artifacts = None
         app.state.model_ready = False
 
+    import os
     try:
         await eureka_client.init_async(
-            eureka_server="http://localhost:8761/eureka",
+            eureka_server=os.getenv("EUREKA_SERVER", "http://localhost:8761/eureka"),
             app_name="ML-SERVICE",
-            instance_port=8000,
-            instance_ip="127.0.0.1"
+            instance_port=int(os.getenv("ML_SERVICE_PORT", 8000)),
+            instance_ip=os.getenv("ML_INSTANCE_IP", "127.0.0.1")
         )
         logger.info("✅ Registered with Eureka!")
     except Exception as e:
