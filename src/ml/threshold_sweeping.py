@@ -85,12 +85,23 @@ for thresh, p, r, f1 in results:
         marker = " <--- MAX F1" if thresh == best_threshold else ""
         print(f"    Thresh {thresh:.2f} | P: {p:.4f} | R: {r:.4f} | F1: {f1:.4f}{marker}")
 
+# ── Find Precision-Recall crossing point ──────────────────────────
+crossing_threshold = best_threshold  # fallback
+min_gap = float('inf')
+for i, thresh in enumerate(thresholds):
+    gap = abs(precisions[i] - recalls[i])
+    if gap < min_gap:
+        min_gap = gap
+        crossing_threshold = thresh
+
+print(f"\n  [+] Precision-Recall crossing point: {crossing_threshold:.2f}")
+
 # ── Plotting ──────────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.plot(thresholds, f1_scores, color='purple', linewidth=2.5, label='F1-Score')
 ax.plot(thresholds, precisions, color='blue', linestyle='--', label='Precision')
 ax.plot(thresholds, recalls, color='green', linestyle='--', label='Recall')
-ax.axvline(x=best_threshold, color='red', linestyle=':', linewidth=2, label=f'Optimal Threshold = {best_threshold:.2f}')
+ax.axvline(x=crossing_threshold, color='red', linestyle=':', linewidth=2, label=f'Optimal Threshold = {crossing_threshold:.2f}')
 
 ax.set_xlabel('Anomaly Score Threshold')
 ax.set_ylabel('Score Metric')

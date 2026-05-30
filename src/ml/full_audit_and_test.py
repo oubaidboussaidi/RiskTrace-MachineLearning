@@ -135,8 +135,12 @@ print("STEP 3: SIMULATED LIVE TRACKER INFERENCE")
 print("="*60)
 
 # Load fresh artifacts
-scaler = joblib.load(SCALER_PATH)
-model2 = joblib.load(MODEL_PATH)
+import joblib
+from predict import DEFAULT_SCALER_PATH, DEFAULT_MODEL_PATH
+scaler = joblib.load(DEFAULT_SCALER_PATH)
+model2 = joblib.load(DEFAULT_MODEL_PATH)
+
+from predict import normalize_score, ANOMALY_THRESHOLD, _map_confidence
 
 def predict_from_raw_logs(session_name, logs):
     """Full pipeline: raw Spring Boot logs  features  prediction."""
@@ -145,12 +149,16 @@ def predict_from_raw_logs(session_name, logs):
     row = np.array([[features[col] for col in FEATURE_COLUMNS]])
     row_scaled = scaler.transform(row)
     raw_score = model2.decision_function(row_scaled)[0]
-    score = float(1.0 / (1.0 + np.exp(raw_score)))
-    prediction = " ANOMALY" if score >= 0.5 else "OK NORMAL"
-    confidence = "HIGH" if score >= 0.75 else ("MEDIUM" if score >= 0.5 else "LOW")
+    
+    # Use the real normalization logic
+    score = normalize_score([raw_score])[0]
+    
+    prediction = " ANOMALY" if score >= ANOMALY_THRESHOLD else "OK NORMAL"
+    confidence = _map_confidence(score)
+    
     print(f"\n  [{session_name}]")
     print(f"    Features      : {features}")
-    print(f"    Anomaly Score : {score:.4f}")
+    print(f"    Anomaly Score : {score:.4f} (Threshold: {ANOMALY_THRESHOLD})")
     print(f"    Prediction    : {prediction}   ({confidence} confidence)")
 
 # --- Scenario A: Normal user browsing (camelCase  exactly what Spring Boot sends)
